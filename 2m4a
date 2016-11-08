@@ -1,0 +1,373 @@
+#!/bin/bash
+# convert "any" audioformat to mp3
+#
+# sports some meta data converting too. It's rudimentary for now.
+# Development 2006 by Andreas Engl <Andreas.Engl@student.fh-nuernberg.de>
+#
+# 2mp3 is based on audio convert 0.3.1:
+# by 2005 linasoft
+#
+# Requires: mplayer, faad, kde, mppdec, oggdec, mac, id3tag 
+
+#TODO: 		+ real tagging solution
+# 		+ move all decoding to mplayer
+PN=`basename "$0"`			# Program name
+VER='0.2'
+
+temp_file="audiodump.wav"
+
+graceful_exit()
+{
+clean_up
+exit 1
+}
+
+clean_up()
+{
+rm -f "$temp_file"
+
+}
+
+get_metatags ()
+{
+#echo "get_metatags() called"
+
+	if (is_ogg "$file")
+        then
+               # artist_name=`ogginfo "$file" | grep artist | cut -d \= -f 2`
+	#	album_name=`ogginfo "$file" | grep album | cut -d \= -f 2`
+	#	song_name=`ogginfo "$file" | grep title | cut -d \= -f 2`
+	#	track_number=`ogginfo "$file" | grep tracknumber | cut -d \= -f 2`
+	echo "ogg tags not supported yet"
+	fi
+	if (is_flac "$file")
+	then
+		 artist_name=`metaflac --show-tag=artist "$file" | cut -d \= -f 2`
+		 album_name=`metaflac --show-tag=album "$file" | cut -d \= -f 2`
+		 song_name=`metaflac --show-tag=title "$file" | cut -d \= -f 2`
+		 track_number=`metaflac --show-tag=tracknumber "$file" | cut -d \= -f 2`
+	fi
+	if (is_aac "$file")
+	then
+		artist_name=`faad -i "$file" 2>&1 | awk '/artist/ { print substr($0, match($0, /:/) + 2 ) }'`
+		album_name=`faad -i "$file" 2>&1 | awk '/album/ { print substr($0, match($0, /:/) + 2 ) }'`
+		song_name=`faad -i "$file" 2>&1 | awk '/title/ { print substr($0, match($0, /:/) + 2 ) }'`
+		track_number=`faad -i "$file" 2>&1 | awk '/track/ { print substr($0, match($0, /:/) + 2 ) }'`
+	fi
+	
+
+}
+
+set_mp3_fields ()
+
+{
+#echo "set_mp3_fields() called "
+
+        if [ "$artist_name" ]
+        then
+                mp3_fields=(-a"$artist_name")
+        fi
+        if [ "$album_name" ]
+        then
+                mp3_fields=("${mp3_fields[@]}" -A"$album_name")
+        fi
+        if [ "$song_name" ]
+        then
+                mp3_fields=("${mp3_fields[@]}" -s"$song_name")
+        fi
+        if [ "$track_number" ]
+        then
+                mp3_fields=("${mp3_fields[@]}" -t"$track_number")
+        fi
+}
+
+# determine audio file type, silently
+
+is_ogg ()
+{
+	file -b "$file" | grep 'Vorbis' &> /dev/null && echo $file | grep -i '\.ogg$' &> /dev/null
+}
+
+is_mpc ()
+{
+	file -b "$file" | grep 'Musepack' &> /dev/null && echo $file | grep -i '\.mpc$' &> /dev/null
+}
+
+is_flac ()
+{
+	file -b "$file" | grep 'FLAC' &> /dev/null ||  echo $file | grep -i '\.flac$' &> /dev/null
+}
+
+is_mac ()
+{
+	file -b "$file" | grep 'data' &> /dev/null && echo $file | grep -i '\.ape$' &> /dev/null
+}
+
+is_aac ()
+{
+	file -b "$file" | grep 'AAC' &> /dev/null && echo $file | grep -i '\.aac$' &> /dev/null
+}
+
+is_wav ()
+{
+	file -b "$file" | grep 'WAVE' &> /dev/null && echo $file | grep -i '\.wav$' &> /dev/null
+}
+
+is_wma ()
+{
+	file -b "$file" | grep 'Microsoft' &> /dev/null && echo $file | grep -i '\.wma$' &> /dev/null
+}
+
+is_m4a ()
+{
+	file -b "$file" | grep "MPEG v4 system" &> /dev/null || echo $file | grep -i '\.m4a$' &> /dev/null
+}
+
+is_mp4 ()
+{
+ 	file -b "$file" | grep "MPEG v4 system" &> /dev/null && echo $file | grep -i '\.mp4$' &> /dev/null
+}
+
+
+is_mp3 ()
+{
+ 	file -b "$file" | grep 'MP§' &> /dev/null || echo $file | grep -i '\.mp3$' &> /dev/null
+}
+
+is_ape ()
+{
+        file -b "$file" | grep "Monkey's Audio" &> /dev/null || echo $file | grep -i '\.ape$' &> /dev/null
+}
+	
+
+######## decoding
+ogg_decode ()
+{
+	echo -e "\t decoding file:" $file
+	song=${file%.ogg}
+	#oggdec "$file" -o "$temp_file"
+	mplayer -ao pcm "$file"
+
+#echo -e "ogg_decode() song:" $song
+}
+
+mpc_decode ()
+{
+	echo -e "\t decoding file:" $file
+	song=${file%.mpc}
+mplayer -ao pcm "$file"
+
+#echo -e "mpc_decode() song:" $song
+}
+
+flac_decode ()
+{
+	echo -e "\t decoding file:" $file
+	song=${file%.flac}
+	#flac -d -f -F --no-verify "$file" -o "$temp_file" 2>&1 
+	mplayer -ao pcm "$file"
+
+#echo -e "flac_decode() song:" $song	
+
+}
+
+mac_decode ()
+{
+	echo -e "\t decoding file:" $file
+	song=${file%.wav}
+	mac "$file" "$temp_file" -d
+
+#echo -e "mac_decode() song:" $song
+}
+
+ape_decode ()
+{
+        echo -e "\t decoding file:" $file
+        song=${file%.ape}
+        mac "$file" "$temp_file" -d
+
+}
+			
+aac_decode ()
+{
+	echo -e "\t decoding file:" $file
+	song=${file%.aac}
+	faad -o "$temp_file" "$file"
+
+#echo -e "aac_decode() song:" $song
+}
+
+wma_decode ()
+{
+	echo -e "\t decoding file:" $file
+	song=${file%.wma}
+	mplayer -ao pcm "$file"
+
+#echo -e "wma_decode() song:" $song
+}
+
+m4a_decode ()
+{
+
+	echo -e "\t decoding file:" $file
+	song=${file%.m4a}
+	mplayer -ao pcm "$file" 
+	
+#echo -e "m4a_decode() song:" $song
+}
+
+mp4_decode ()
+{
+	echo -e "\t + decoding file:" $file
+	song=${file%.mp4}
+        mplayer -ao pcm "$file" 
+
+#echo -e "mp4_decode() song:" $song
+}
+
+mp3_decode ()
+{
+	echo -e "\t + decoding file:" $file
+	song=${file%.mp3}
+	mplayer -ao pcm "$file" 
+
+
+#echo -e "mp3_decode() song:" $song
+}
+
+####################################################################
+# encode to mp3
+
+mp3_encode ()
+{
+echo -e "\t + encoding file:" $song ".mp3"
+if !( lame --preset fast extreme "$temp_file" "$song".mp3 )
+then
+exit -1
+fi
+
+#echo "mp3_encode() called on Song:" $song
+}
+
+convert_audio_file () 
+{
+# decode the given audioformat
+
+if (is_ogg "$file")
+then
+ogg_decode
+fi
+
+if (is_mpc "$file")
+then
+mpc_decode
+fi
+
+if (is_flac "$file")
+then
+flac_decode
+fi
+
+if (is_mac "$file")
+then
+mac_decode
+fi
+
+if (is_aac "$file") 
+then
+aac_decode
+fi
+
+if (is_wma "$file")
+then
+wma_decode
+fi
+
+if (is_m4a "$file")
+then 
+m4a_decode
+fi
+
+if (is_mp4 "$file")
+then
+mp4_decode
+fi
+
+if (is_ape "$file")
+then
+ape_decode
+fi
+
+if (is_mp3 "$file")
+then
+mp3_decode
+fi
+
+
+# encode in mp3
+mp3_encode
+
+# prepare mp3 fields and write them the new mp3 file
+#set_mp3_fields
+#id3tag "${mp3_fields[@]}" "$song".mp3
+
+# delete original file 
+mp3file="$song.mp3"
+dir=$(echo ${PWD##*/})
+
+i=`ls -l "$mp3file" | awk '{print $5}'`
+k=`ls -l "$file" | awk '{print $5}'`
+#echo "k" $k "i" $i
+help=$(echo $i/$k|bc -l)
+#echo "help" $help
+percentage=$(echo $help*100|bc -l)
+percentage=${percentage%.*}
+#echo "percentage" $percentage
+if [ 40 -lt $percentage ] # if new file is at least 40% of the original it should be kosher
+ then
+ echo -e "\t + " $file "succesfully converted."
+ if !(is_mp3 "$file") 
+  	then 
+	kfmclient move "$file" trash:/  &> /dev/null
+ fi	# don't forget to trash your trashbin
+ fi
+
+}
+
+
+
+# main
+echo -e " == " $PN "Version:" $VER "by" $AUT " == "
+
+trap "graceful_exit" SIGINT SIGTERM # graceful exit upon signal
+
+
+if [ $# -eq 0 ]; then
+echo -e "You attempted to convert nothing to mp3... Try with a file or an expression like *.wma"
+exit 1
+fi
+
+echo -e "\t + " $# "files found. Starting process at:" $(date '+%Y.%m.%d:%H:%M')
+
+for file in "$@"; do
+
+if !(is_ogg "$file") && !(is_mpc "$file") && !(is_flac "$file") && !(is_mac "$file") && \
+!(is_aac "$file") && !(is_wav "$file") && !(is_wma "$file") && !(is_mp4 "$file")  && !(is_mp3 "$file") && !(is_m4a "$file") && !(is_ape "$file")
+then
+	echo "Couldn't find a supported format."
+	echo "processed file: $file"
+	echo -e "\n"
+ 	echo "Supported formats are:" 
+	echo -e " m4a The MP3 Replacement \t \n mpc \t Musepack \n flac \t Free Lossless Audio Codec\n ape \t Monkey's Audio \n aac \t Apple Audio Codec\n wma \t Windows Media Codec\n ogg \t Ogg Vorbis \n wav \t Wave\n"
+        exit 1
+fi
+
+get_metatags "$file"
+convert_audio_file "$file"
+clean_up
+
+done
+
+echo -e "\t + finished at: " $(date '+%Y.%m.%d:%H:%M')
+echo -e "\t + Don't forget to empty your trashbin."
+

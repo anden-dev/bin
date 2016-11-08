@@ -1,0 +1,216 @@
+#!/usr/bin/perl
+# Usage: convflac <filename.flac> [fileout.m4a] [faac options]
+
+#use common::sense;
+
+# This is for meta data. Sometimes flac and m4a don't match up - e.g. tracknumber in flac
+# and track in m4a. Specify them here. I don't really know all of them, so add as I go!
+#
+# One constraint: keep them lower case.
+#our %mutation_map = (
+#	#flac			#m4a
+#	'tracknumber',		'track',
+#	'notes',		'comment',
+#	'date',			'year', # comment this line out if it's breaking stuff!
+#);
+
+# Some global variables:
+our $infile, our $outfile, our $faac_options = ' ', our %mutation_map, our %settings;
+
+# Check we have required programs
+checkfaacflac();
+
+# Read settings:
+read_settings();
+
+# If we have no arguments, show usage
+noinfileerror() if ($#ARGV) == -1;
+
+# grab input file from stdin
+our $infile = $ARGV[0];
+# basic error checking (if it's empty somehow or if it doesn't exist)
+noinfileerror() if ($infile eq '');
+filenotexisterror() if (!-e $infile);
+
+# Just one argument, so derive the name of the output file
+if ($#ARGV == 0) {
+	$outfile = $infile;
+	$outfile =~ s/\.flac$/.m4a/i;
+	if ($outfile !~ /\.m4a$/) {
+		$outfile .= '.m4a';
+		print 'Warning - input file does not end in .flac, outputting to '.$outfile."\n";
+	}
+}
+elsif ($#ARGV >= 1) {
+	$outfile = $ARGV[1];
+
+	if ($#ARGV > 1) {
+		for (my $i = 2; $i <= $#ARGV; $i++) {
+			$faac_options .= $ARGV[$i].' ';
+		}
+	}
+}
+
+convert();
+
+sub convert {
+	print 'Converting "'.$infile.'" to "'.$outfile.'"'."\n";
+	#Get meta data
+	my $meta = metadata();
+	# Construct command:
+	# Default:
+	my $cmd = 'flac ';
+	if ($settings{'codec_flac'} ne '') {
+		$cmd .= $settings{'codec_flac'};
+	}
+	else {
+		$cmd .= '-cd';
+	}
+
+	$cmd .= ' "'.$infile.'" | faac ';
+
+	if ($settings{'codec_faac'} ne '') {
+		$cmd .= $settings{'codec_faac'};	
+	}
+	else {
+		$cmd .= '-q 300 -w -s '.$faac_options;
+	}
+	$cmd .= ' '.$meta.' -o "'.$outfile.'" -';
+
+	print "\n".'Executing: '.$cmd."\n";
+	my $output = `$cmd >/dev/null`;
+	print 'done'."\n";
+}
+
+sub metadata {
+	print 'Obtaining meta data...'."\n";
+	my $metaout = '';
+	# Tags supported by faac as far as I know
+	my $unsupported = '';
+	my @supported = (
+		'artist',
+		'writer',
+		'title',
+		'genre',
+		'album',
+		'track',
+		'disc',
+		'year',
+		'comment',
+	);
+	#Use metaflac to grab file info
+	my $metadata = `metaflac --export-tags-to=- "$infile"`;
+	my @metatable = split(/\n/, $metadata);
+	foreach (@metatable) {
+		chomp;
+		my $found = 0;
+		my ($key, $value) = split(/=/);
+		# Lower case key
+		$key =~ tr/[A-Z]/[a-z]/;
+		if ($mutation_map{$key} ne '') {
+			print $key.' => ';
+			$key = $mutation_map{$key};
+		}
+		foreach (@supported) {
+			if ($_ eq $key) {
+				$metaout .= '--'.$key.' "'.$value.'" ';
+				print $key."\t=\t".$value."\n";
+				$found = 1;
+			}
+		}
+		if ($found == 0) {
+			$unsupported .= $key.', ';
+		}
+	}
+	if ($unsupported ne '') {
+		print 'Unsupported tags: '.$unsupported."\n";
+	}
+	return $metaout;
+}
+
+sub noinfileerror {
+	print 'No input flac file'."\n\n";
+	showusage();
+}
+
+sub filenotexisterror {
+	print 'Input file '.$infile.' not found'."\n\n";
+	showusage();
+}
+
+sub showusage {
+	print 'Usage: convflac <filein.flac> [fileout.m4a]'."\n";
+	print 'If no fileout is specified, then filein.m4a will be created'."\n";
+	exit;
+}
+
+sub checkfaacflac {
+	my @apps = (
+		'flac',
+		'metaflac',
+		'faac',
+	);
+	foreach (@apps) {
+		if (checkapp($_) == 0) {
+			print 'Error: Cannot find "'.$_.'" in your path. Please install it and try again.'."\n";
+			exit(-1);
+		}
+	}
+	return;
+}
+sub checkapp {
+	my $app = shift;
+	my @path = split(/:/, $ENV{'PATH'});
+	foreach (@path) {
+		return 1 if (-e $_.'/'.$app);
+	}
+	return 0;
+}
+
+sub read_settings {
+	my $home = $ENV{'HOME'};
+	my $settings = $home.'/.convflac';
+	if (!-e $settings) {
+		return if (create_settings() == -1);
+	}
+	open(FHANDLE, $settings) or return -1;
+	foreach (<FHANDLE>) {
+		if ((!/^#/) and (/=/)) {
+			my @args = split(/=/), my $key, my $value = $_;
+			$key = $args[0];
+			$value =~ s/^$key=(.*?)/\1/i;
+			$value =~ s/^\s(.*?)/\1/i;
+			$key =~ tr/[A-Z]/[a-z]/;
+			$key =~ s/\s$//;
+			chomp($key);
+			chomp($value);
+			if ($key !~ /^mutation_/) {
+				$settings{$key} = $value;
+			}
+			else {
+				$key =~ s/^mutation_(.*?)/\1/i;
+				$mutation_map{$key} = $value;
+			}
+		}
+	}
+	close(FHANDLE);
+	
+}
+
+sub create_settings {
+	open(FHANDLE, '>'.$ENV{'HOME'}.'/.convflac') or return -1;
+	print FHANDLE '# convflac config file'."\n";
+	print FHANDLE '# lines starting with # are comments, everything else is key=value'."\n\n";
+	print FHANDLE '# Codec options - uncomment to make changes to quality settings'."\n";
+	print FHANDLE '# Default is -q 300 -w -s for faac, it\'s recommended you leave flac alone'."\n";
+	print FHANDLE '# See man flac and man faac for more info'."\n";
+	print FHANDLE '#codec_faac = -q 300 -w -s'."\n";
+	print FHANDLE '#codec_flac = -cd'."\n\n";
+	print FHANDLE '# Mutation options (for tags):'."\n";
+	print FHANDLE '#mutation_flacname = faacname'."\n";
+	print FHANDLE 'mutation_tracknumber = track'."\n";
+	print FHANDLE 'mutation_notes = comment'."\n";
+	print FHANDLE 'mutation_date = year'."\n\n";
+	close(FH);
+}
+
