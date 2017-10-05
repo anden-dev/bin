@@ -14,6 +14,7 @@ rsync -avhrWAHxv \
 --exclude '*(MFSL)*' \
 --exclude '*Wagner*' \
 --exclude '*Mozart*' \
+--size-only \
 --numeric-ids --progress --inplace --delete \
 --log-file=$DIR/last_syncNas.log \
 /Volumes/Storage/Music admin@nas.local:/share/Multimedia \
