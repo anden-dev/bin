@@ -6,11 +6,9 @@ DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 rsync -avhrWAHxv \
 --exclude '.DS_Store' \
 --exclude 'Podcasts/' \
+--exclude 'Cesko Mix/' \
 --exclude '*Vogelstimmen*' \
 --exclude '*(SACD)*' \
---exclude '*(DCC)*' \
---exclude '*(XRCD)*' \
---exclude '*(XRCD24)*' \
 --exclude '*(MFSL)*' \
 --exclude '*Wagner*' \
 --exclude '*Mozart*' \
